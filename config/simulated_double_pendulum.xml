@@ -1,6 +1,6 @@
 <mujoco model="double_pendulum">
   <!-- Timestep is dt_ctrl / mujoco_substeps -->
-  <option timestep="0.001" integrator="RK4" gravity="0 0 -9.81"/>
+  <option timestep="0.01" integrator="RK4" gravity="0 0 -9.81"/>
   <worldbody>
     <body pos="0 0 2">
       <joint name="pin1" type="hinge" axis="0 1 0" damping="0.5"/>
