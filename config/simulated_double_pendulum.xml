@@ -1,0 +1,18 @@
+<mujoco model="double_pendulum">
+  <!-- Timestep is dt_ctrl / mujoco_substeps -->
+  <option timestep="0.001" integrator="RK4" gravity="0 0 -9.81"/>
+  <worldbody>
+    <body pos="0 0 2">
+      <joint name="pin1" type="hinge" axis="0 1 0" damping="0.5"/>
+      <geom type="capsule" fromto="0 0 0 0 0 -0.5" size="0.05" rgba="0.8 0.2 0.2 1" mass="1"/>
+      <body pos="0 0 -0.5">
+        <joint name="pin2" type="hinge" axis="0 1 0" damping="0.5"/>
+        <geom type="capsule" fromto="0 0 0 0 0 -0.5" size="0.05" rgba="0.2 0.8 0.2 1" mass="1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor joint="pin1" name="torque1" gear="1"/>
+    <motor joint="pin2" name="torque2" gear="1"/>
+  </actuator>
+</mujoco>
