@@ -35,6 +35,7 @@ setup(
     entry_points={
         "console_scripts": [
             "simulated_reservoir = reservoir_control.simulated_reservoir_node:main",
+            "expert_trainer = reservoir_control.expert_trainer:main",
         ],
     },
 )

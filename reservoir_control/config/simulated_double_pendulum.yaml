@@ -15,3 +15,20 @@
         seed: 42
         warmup_steps: 30
       
+/expert_trainer_node:
+  ros__parameters:
+    # Reservoir selection
+    reservoir_type: "double_pendulum"
+    
+    # Nested reservoir-specific parameters
+    reservoir_parameters:
+        xml_file: "simulated_double_pendulum.xml"
+        dt_ctrl: 0.05
+        mujoco_substeps: 5
+        rbf_gamma: 0.05
+        rbf_components: 1000
+        ctrl_scale: 12.0
+        leak_rate: 0.3
+        seed: 42
+        warmup_steps: 30
+      
