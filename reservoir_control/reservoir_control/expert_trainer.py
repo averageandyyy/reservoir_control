@@ -1,5 +1,9 @@
+import threading
+
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from rclpy.action import ActionServer
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from simple_pid import PID
@@ -52,6 +56,20 @@ class ExpertTrainerNode(Node):
         self._initialize_trajectory_generator_and_pid()
 
         self.add_post_set_parameters_callback(self._post_param_set_callback)
+
+        # Trajectory action server
+        self.trajectory_handle = None
+        self.trajectory_lock = threading.Lock()
+        self.trajectory_action_server = ActionServer(
+            self,
+            Trajectory,
+            "trajectory",
+            execute_callback=self._execute_trajectory_callback,
+            goal_callback=self._goal_callback,
+            handle_accepted_callback=self._handle_accepted_callback,
+            cancel_callback=self._cancel_callback,
+            callback_group=ReentrantCallbackGroup(),
+        )
 
         self.get_logger().info("ExpertTrainerNode setup complete.")
 
@@ -139,6 +157,61 @@ class ExpertTrainerNode(Node):
         The learned parameters are saved to a file for later use in the SimulatedReservoirNode.
         """
         pass
+
+    def _goal_callback(self, goal_request):
+        self.get_logger().info("Received trajectory goal request.")
+        return rclpy.action.GoalResponse.ACCEPT
+
+    def _handle_accepted_callback(self, goal_handle):
+        with self.trajectory_lock:
+            # Ensure only one trajectory is executed at a time
+            if self.trajectory_handle is not None and self.trajectory_handle.is_active:
+                self.get_logger().info(
+                    "Aborting current active trajectory to accept new goal."
+                )
+                self.trajectory_handle.abort()
+            self.trajectory_handle = goal_handle
+
+        goal_handle.execute()
+
+    def _cancel_callback(self, goal):
+        self.get_logger().info("Received request to cancel trajectory goal.")
+        return rclpy.action.CancelResponse.ACCEPT
+
+    def _execute_trajectory_callback(self, goal_handle):
+        self.get_logger().info("Executing trajectory goal.")
+        path = goal_handle.request.path
+        waypoints = [
+            (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
+        ]
+        total_time = self.trajectory_generator.generate_trajectory(waypoints)
+        start_time = self.get_clock().now()
+        end_time = start_time + rclpy.duration.Duration(seconds=total_time)
+
+        while self.get_clock().now() < end_time:
+            if goal_handle.is_cancel_requested:
+                self.get_logger().info("Trajectory goal canceled.")
+                goal_handle.canceled()
+                return Trajectory.Result(success=False)
+
+            if not goal_handle.is_active:
+                self.get_logger().info("Trajectory goal no longer active.")
+                return Trajectory.Result(success=False)
+
+            elapsed = (self.get_clock().now() - start_time).nanoseconds / 1e9
+            x, y, progress = self.trajectory_generator.query_trajectory(elapsed)
+
+            # PID control to compute velocity commands
+
+            feedback = Trajectory.Feedback()
+            feedback.progress = progress
+            feedback.setpoint.x = x
+            feedback.setpoint.y = y
+            goal_handle.publish_feedback(feedback)
+
+        self.get_logger().info("Trajectory goal completed successfully.")
+        goal_handle.succeed()
+        return Trajectory.Result(success=True)
 
 
 def main(args=None):

@@ -6,3 +6,4 @@ bool success
 ---
 # Feedback
 float32 progress
+geometry_msgs/Point setpoint
