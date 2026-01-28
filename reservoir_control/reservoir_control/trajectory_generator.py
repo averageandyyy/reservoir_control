@@ -49,7 +49,7 @@ class TrajectoryGenerator:
         self.coefficients_x = self._solve_cubic_spline(x_points)
         self.coefficients_y = self._solve_cubic_spline(y_points)
 
-        return True
+        return self.accumulated_times[-1]
 
     def _solve_cubic_spline(self, points):
         """
@@ -113,8 +113,13 @@ class TrajectoryGenerator:
         return coefficients.reshape((num_segments, 4))
 
     def query_trajectory(self, t):
+        """
+        Query the trajectory at time t, returning (x, y, progress).
+        Returns the (x, y) position at time t along the trajectory.
+        progress: fraction of total trajectory completed (0 to 1).
+        """
         if t <= 0:
-            return (self.coefficients_x[0][0], self.coefficients_y[0][0])
+            return (self.coefficients_x[0][0], self.coefficients_y[0][0], 0.0)
 
         # We want time local to a particular segment
         if t >= self.accumulated_times[-1]:
@@ -140,7 +145,11 @@ class TrajectoryGenerator:
             + coeffs_y[3] * local_t**3
         )
 
-        return (x, y)
+        return (
+            x,
+            y,
+            t / (self.accumulated_times[-1]),
+        )
 
 
 def main():

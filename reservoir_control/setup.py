@@ -36,6 +36,7 @@ setup(
         "console_scripts": [
             "simulated_reservoir = reservoir_control.simulated_reservoir_node:main",
             "expert_trainer = reservoir_control.expert_trainer:main",
+            "trajectory_action_client = reservoir_control.trajectory_action_client:main",
         ],
     },
 )
