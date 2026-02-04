@@ -14,10 +14,10 @@ class RobotState2D:
         self.y = y
         self.theta = theta
 
-    def as_tuple(self):
+    def as_tuple(self) -> tuple[float, float, float]:
         return (self.x, self.y, self.theta)
 
-    def update(self, x, y, theta):
+    def update(self, x: float, y: float, theta: float) -> None:
         self.x = x
         self.y = y
         self.theta = theta
