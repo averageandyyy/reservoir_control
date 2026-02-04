@@ -21,7 +21,7 @@ class TrajectoryGenerator:
         # Start time of each segment
         self.accumulated_times = []
 
-    def _calculate_time_segments(self, waypoints):
+    def _calculate_time_segments(self, waypoints: list[tuple[float, float]]) -> None:
         """
         Calculate time durations for each segment based on average speed and distance.
         """
@@ -37,7 +37,7 @@ class TrajectoryGenerator:
             self.segment_times.append(dt)
             self.accumulated_times.append(self.accumulated_times[-1] + dt)
 
-    def generate_trajectory(self, waypoints):
+    def generate_trajectory(self, waypoints: list[tuple[float, float]]) -> float:
         """
         Generate the trajectory given a list of waypoints.
         Each segment is represented by cubic polynomials for x and y coordinates.
@@ -51,7 +51,7 @@ class TrajectoryGenerator:
 
         return self.accumulated_times[-1]
 
-    def _solve_cubic_spline(self, points):
+    def _solve_cubic_spline(self, points: list[float]) -> np.ndarray:
         """
         With N waypoints, there are N-1 segments. Each segment i has coeffcients a_i, b_i, c_i, d_i such that pos(t) = a_i + b_i*t + c_i*t^2 + d_i*t^3 for t in [0, dt_i].
 
@@ -112,7 +112,7 @@ class TrajectoryGenerator:
         coefficients = np.linalg.solve(A, b)
         return coefficients.reshape((num_segments, 4))
 
-    def query_trajectory(self, t):
+    def query_trajectory(self, t: float) -> tuple[float, float, float]:
         """
         Query the trajectory at time t, returning (x, y, progress).
         Returns the (x, y) position at time t along the trajectory.
