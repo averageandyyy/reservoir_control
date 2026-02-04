@@ -8,10 +8,16 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from simple_pid import PID
 from sklearn.linear_model import Ridge
+from std_srvs.srv import Trigger
 
 from reservoir_control.simulated_reservoirs import SimulatedReservoir
 from reservoir_control.trajectory_generator import TrajectoryGenerator
-from reservoir_control.utils import initialize_reservoir, pi_clip
+from reservoir_control.utils import (
+    RobotState2D,
+    get_local_error,
+    initialize_reservoir,
+    pi_clip,
+)
 from reservoir_msgs.action import Trajectory
 
 
@@ -69,6 +75,17 @@ class ExpertTrainerNode(Node):
             handle_accepted_callback=self._handle_accepted_callback,
             cancel_callback=self._cancel_callback,
             callback_group=ReentrantCallbackGroup(),
+        )
+
+        self.get_logger().info("Trajectory action server initialized.")
+
+        # Robot pose and command
+        self.state_lock = threading.Lock()
+        self.state: RobotState2D = None
+
+        # Service to trigger ridge regression training and saving
+        self.train_service = self.create_service(
+            Trigger, "train_reservoir_ridge", self._train_and_save_ridge
         )
 
         self.get_logger().info("ExpertTrainerNode setup complete.")
@@ -139,24 +156,26 @@ class ExpertTrainerNode(Node):
             self.linear_kp,
             self.linear_ki,
             self.linear_kd,
-            setpoint=0,
+            setpoint=0,  # Target distance is zero
         )
         self.pid_angular = PID(
             self.angular_kp,
             self.angular_ki,
             self.angular_kd,
-            setpoint=0,
+            setpoint=0,  # Target angle error is zero
             error_map=pi_clip,
         )
 
         self.get_logger().info("Trajectory generator and PID controllers initialized.")
 
-    def _train_and_save_ridge(self):
+    def _train_and_save_ridge(self, request, response):
         """
         Reservoir features and control outputs collected during trajectory following are used to fit a ridge regression model.
         The learned parameters are saved to a file for later use in the SimulatedReservoirNode.
         """
-        pass
+        response.success = True
+        response.message = "Ridge regression training and saving not yet implemented."
+        return response
 
     def _goal_callback(self, goal_request):
         self.get_logger().info("Received trajectory goal request.")
@@ -181,10 +200,13 @@ class ExpertTrainerNode(Node):
     def _execute_trajectory_callback(self, goal_handle):
         self.get_logger().info("Executing trajectory goal.")
         path = goal_handle.request.path
-        waypoints = [
+        waypoints = [self.state.as_tuple()] + [
             (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
         ]
         total_time = self.trajectory_generator.generate_trajectory(waypoints)
+
+        # Run warmup sequence if needed before starting trajectory
+
         start_time = self.get_clock().now()
         end_time = start_time + rclpy.duration.Duration(seconds=total_time)
 
@@ -202,7 +224,7 @@ class ExpertTrainerNode(Node):
             x, y, progress = self.trajectory_generator.query_trajectory(elapsed)
 
             # PID control to compute velocity commands
-
+            local_error = get_local_error(self.state.as_tuple(), (x, y))
             feedback = Trajectory.Feedback()
             feedback.progress = progress
             feedback.setpoint.x = x
