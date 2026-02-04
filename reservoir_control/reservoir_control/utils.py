@@ -70,3 +70,18 @@ def get_local_error(robot_state, target):
         np.sin(global_angle - rtheta), np.cos(global_angle - rtheta)
     )
     return np.array([dist, heading_error])
+
+
+class RobotState2D:
+    def __init__(self, x=0.0, y=0.0, theta=0.0):
+        self.x = x
+        self.y = y
+        self.theta = theta
+
+    def as_tuple(self):
+        return (self.x, self.y, self.theta)
+
+    def update(self, x, y, theta):
+        self.x = x
+        self.y = y
+        self.theta = theta
