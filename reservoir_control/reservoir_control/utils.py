@@ -5,8 +5,27 @@ from ament_index_python.packages import get_package_share_directory
 from rclpy.logging import RcutilsLogger
 from rclpy.parameter import parameter_dict_from_yaml_file, parameter_value_to_python
 
+from reservoir_control.reservoir_control.simulated_reservoirs import SimulatedReservoir
 
-def create_reservoir(reservoir_type: str, config: dict, logger: RcutilsLogger):
+
+class RobotState2D:
+    def __init__(self, x=0.0, y=0.0, theta=0.0):
+        self.x = x
+        self.y = y
+        self.theta = theta
+
+    def as_tuple(self):
+        return (self.x, self.y, self.theta)
+
+    def update(self, x, y, theta):
+        self.x = x
+        self.y = y
+        self.theta = theta
+
+
+def create_reservoir(
+    reservoir_type: str, config: dict, logger: RcutilsLogger
+) -> SimulatedReservoir:
     if reservoir_type == "double_pendulum":
         from reservoir_control.simulated_reservoirs import DoublePendulumReservoir
 
@@ -18,7 +37,7 @@ def create_reservoir(reservoir_type: str, config: dict, logger: RcutilsLogger):
 
 def initialize_reservoir(
     reservoir_type: str, config_file: str, node_name: str, logger: RcutilsLogger
-):
+) -> SimulatedReservoir:
     config = {}
     prefix = "reservoir_parameters."
     params = parameter_dict_from_yaml_file(config_file, target_nodes=["/" + node_name])
@@ -39,7 +58,7 @@ def initialize_reservoir(
     return create_reservoir(reservoir_type, config, logger)
 
 
-def pi_clip(angle):
+def pi_clip(angle: float) -> float:
     if angle > math.pi:
         angle -= 2 * math.pi
     elif angle < -math.pi:
@@ -47,7 +66,7 @@ def pi_clip(angle):
     return angle
 
 
-def body_error(robot_state, target):
+def body_error(robot_state: tuple, target: tuple) -> np.ndarray:
     """Compute body-frame error (ex, ey)."""
     rx, ry, rtheta = robot_state
     tx, ty = target
@@ -59,7 +78,7 @@ def body_error(robot_state, target):
     return np.array([ex, ey], dtype=float)
 
 
-def get_local_error(robot_state, target):
+def get_local_error(robot_state: tuple, target: tuple) -> np.ndarray:
     """Compute [dist, heading_error] - raw input for reservoir (like working version)."""
     rx, ry, rtheta = robot_state
     tx, ty = target
@@ -70,18 +89,3 @@ def get_local_error(robot_state, target):
         np.sin(global_angle - rtheta), np.cos(global_angle - rtheta)
     )
     return np.array([dist, heading_error])
-
-
-class RobotState2D:
-    def __init__(self, x=0.0, y=0.0, theta=0.0):
-        self.x = x
-        self.y = y
-        self.theta = theta
-
-    def as_tuple(self):
-        return (self.x, self.y, self.theta)
-
-    def update(self, x, y, theta):
-        self.x = x
-        self.y = y
-        self.theta = theta
