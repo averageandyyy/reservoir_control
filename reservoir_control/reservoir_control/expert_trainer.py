@@ -287,8 +287,8 @@ class ExpertTrainerNode(Node):
             (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
         ]
         total_time = self.trajectory_generator.generate_trajectory(waypoints)
-        cmd_msg = TwistStamped()
         res_features = None
+        linear_vel, angular_vel = 0.0, 0.0
 
         # Run warmup sequence if needed before starting trajectory
         if self.is_training or self.use_reservoir_control:
@@ -312,34 +312,39 @@ class ExpertTrainerNode(Node):
                 self.get_logger().info("Trajectory goal no longer active.")
                 return Trajectory.Result(success=False)
 
+            # Trajectory querying
             elapsed = (self.get_clock().now() - start_time).nanoseconds / 1e9
             x, y, progress = self.trajectory_generator.query_trajectory(elapsed)
 
-            # PID control to compute velocity commands
+            # Error computation
             local_error = get_local_error(
                 self.state.as_tuple(), (x, y)
             )  # [dist, heading_error]
 
-            # Reservoir feature generation/collection
+            # Reservoir feature generation
             if self.is_training or self.use_reservoir_control:
                 res_input = scale_input(local_error)
                 res_features = self.reservoir.step(res_input)
 
-            if self.is_training:
-                self.X_train_data.append(res_features)
-                self.Y_train_data.append(np.array([linear_vel, angular_vel]))
-
+            # Control
             if self.use_reservoir_control:
-                # TODO: Use learned linear mapping from reservoir features to control outputs instead of PID for command generation
-                pass
+                action = self.training_ridge.predict(
+                    self.scaler.transform(res_features.reshape(1, -1))
+                )[0]
+                linear_vel = np.clip(action[0], 0.0, self.v_max)
+                angular_vel = np.clip(action[1], -self.w_max, self.w_max)
             else:
                 linear_vel = self.pid_linear(local_error[0])
                 angular_vel = self.pid_angular(local_error[1])
-                cmd_msg = TwistStamped()
-                cmd_msg.header.stamp = self.get_clock().now().to_msg()
-                cmd_msg.twist.linear.x = linear_vel
-                cmd_msg.twist.angular.z = angular_vel
+                # Reservoir feature collection
+                if self.is_training:
+                    self.X_train_data.append(res_features)
+                    self.Y_train_data.append(np.array([linear_vel, angular_vel]))
 
+            cmd_msg = TwistStamped()
+            cmd_msg.header.stamp = self.get_clock().now().to_msg()
+            cmd_msg.twist.linear.x = linear_vel
+            cmd_msg.twist.angular.z = angular_vel
             self.cmd_publisher.publish(cmd_msg)
 
             # Feedback
