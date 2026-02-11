@@ -108,6 +108,8 @@ class ExpertTrainerNode(Node):
         self.declare_parameter("angular_kp", 1.0)
         self.declare_parameter("angular_ki", 0.0)
         self.declare_parameter("angular_kd", 0.1)
+        self.declare_parameter("v_max", 2.0)
+        self.declare_parameter("w_max", 4.0)
 
     def _get_parameters(self):
         self.reservoir_type = (
@@ -140,6 +142,8 @@ class ExpertTrainerNode(Node):
         self.angular_kd = (
             self.get_parameter("angular_kd").get_parameter_value().double_value
         )
+        self.v_max = self.get_parameter("v_max").get_parameter_value().double_value
+        self.w_max = self.get_parameter("w_max").get_parameter_value().double_value
 
         self.config_file = (
             get_package_share_directory("reservoir_control")
@@ -164,6 +168,7 @@ class ExpertTrainerNode(Node):
             self.linear_ki,
             self.linear_kd,
             setpoint=0,  # Target distance is zero
+            output_limits=(0, self.v_max),  # Only forward speed, max at v_max
         )
         self.pid_angular = PID(
             self.angular_kp,
@@ -171,6 +176,7 @@ class ExpertTrainerNode(Node):
             self.angular_kd,
             setpoint=0,  # Target angle error is zero
             error_map=pi_clip,
+            output_limits=(-self.w_max, self.w_max),  # Angular velocity limits
         )
 
         self.get_logger().info("Trajectory generator and PID controllers initialized.")
