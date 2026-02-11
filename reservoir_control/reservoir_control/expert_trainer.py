@@ -81,7 +81,6 @@ class ExpertTrainerNode(Node):
             cancel_callback=self._cancel_callback,
             callback_group=ReentrantCallbackGroup(),
         )
-
         self.get_logger().info("Trajectory action server initialized.")
 
         # Robot pose and command
@@ -91,6 +90,9 @@ class ExpertTrainerNode(Node):
             Odometry, "/odom", self._odom_callback, 10
         )
         self.cmd_publisher = self.create_publisher(TwistStamped, "/cmd_vel", 10)
+        self.get_logger().info(
+            "Odometry subscription and cmd_vel publisher initialized."
+        )
 
         # Service to trigger ridge regression training and saving
         self.train_service = self.create_service(
@@ -106,6 +108,15 @@ class ExpertTrainerNode(Node):
         self.is_training = False
         self.X_train_data = []  # Reservoir features
         self.Y_train_data = []  # Expert control outputs
+        self.get_logger().info(
+            "Training services initialized and training data storage set up."
+        )
+
+        # Reservoir control. Reservoir control and reservoir training are mutually exclusive.
+        self.use_reservoir_control = False
+        self.use_reservoir_control_service = self.create_service(
+            Trigger, "use_reservoir_control", self._use_reservoir_control_callback
+        )
 
         self.get_logger().info("ExpertTrainerNode setup complete.")
 
@@ -229,8 +240,17 @@ class ExpertTrainerNode(Node):
             (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
         ]
         total_time = self.trajectory_generator.generate_trajectory(waypoints)
+        cmd_msg = TwistStamped()
+        res_features = None
 
         # Run warmup sequence if needed before starting trajectory
+        if self.is_training or self.use_reservoir_control:
+            self.get_logger().info(
+                "Running reservoir warmup sequence before trajectory execution."
+            )
+            local_error = get_local_error(self.state.as_tuple(), waypoints[0])
+            self.reservoir.warm_up(scale_input(local_error))
+            self.get_logger().info("Reservoir warmup complete.")
 
         start_time = self.get_clock().now()
         end_time = start_time + rclpy.duration.Duration(seconds=total_time)
@@ -252,20 +272,28 @@ class ExpertTrainerNode(Node):
             local_error = get_local_error(
                 self.state.as_tuple(), (x, y)
             )  # [dist, heading_error]
-            linear_vel = self.pid_linear(local_error[0])
-            angular_vel = self.pid_angular(local_error[1])
-            cmd_msg = TwistStamped()
-            cmd_msg.header.stamp = self.get_clock().now().to_msg()
-            cmd_msg.twist.linear.x = linear_vel
-            cmd_msg.twist.angular.z = angular_vel
-            self.cmd_publisher.publish(cmd_msg)
 
             # Reservoir feature generation/collection
-            if self.is_training:
+            if self.is_training or self.use_reservoir_control:
                 res_input = scale_input(local_error)
                 res_features = self.reservoir.step(res_input)
+
+            if self.is_training:
                 self.X_train_data.append(res_features)
                 self.Y_train_data.append(np.array([linear_vel, angular_vel]))
+
+            if self.use_reservoir_control:
+                # TODO: Use learned linear mapping from reservoir features to control outputs instead of PID for command generation
+                pass
+            else:
+                linear_vel = self.pid_linear(local_error[0])
+                angular_vel = self.pid_angular(local_error[1])
+                cmd_msg = TwistStamped()
+                cmd_msg.header.stamp = self.get_clock().now().to_msg()
+                cmd_msg.twist.linear.x = linear_vel
+                cmd_msg.twist.angular.z = angular_vel
+
+            self.cmd_publisher.publish(cmd_msg)
 
             # Feedback
             feedback = Trajectory.Feedback()
@@ -306,6 +334,12 @@ class ExpertTrainerNode(Node):
         self.Y_train_data.clear()
         response.success = True
         response.message = "Training data cleared."
+        return response
+
+    def _use_reservoir_control_callback(self, request, response):
+        self.use_reservoir_control = not self.use_reservoir_control
+        response.success = True
+        response.message = f"Reservoir control {'enabled' if self.use_reservoir_control else 'disabled'}."
         return response
 
 
