@@ -82,6 +82,10 @@ class ExpertTrainerNode(Node):
         # Robot pose and command
         self.state_lock = threading.Lock()
         self.state: RobotState2D = None
+        self.state_subscription = self.create_subscription(
+            Odometry, "/odom", self._odom_callback, 10
+        )
+        self.cmd_publisher = self.create_publisher(TwistStamped, "/cmd_vel", 10)
 
         # Service to trigger ridge regression training and saving
         self.train_service = self.create_service(
@@ -234,6 +238,21 @@ class ExpertTrainerNode(Node):
         self.get_logger().info("Trajectory goal completed successfully.")
         goal_handle.succeed()
         return Trajectory.Result(success=True)
+
+    def _odom_callback(self, msg):
+        with self.state_lock:
+            x = msg.pose.pose.position.x
+            y = msg.pose.pose.position.y
+            orientation_q = msg.pose.pose.orientation
+            _, _, yaw = euler_from_quaternion(
+                [
+                    orientation_q.x,
+                    orientation_q.y,
+                    orientation_q.z,
+                    orientation_q.w,
+                ]
+            )
+            self.state = RobotState2D(x, y, yaw)
 
 
 def main(args=None):
