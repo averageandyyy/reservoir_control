@@ -88,4 +88,10 @@ def get_local_error(robot_state: tuple, target: tuple) -> np.ndarray:
     heading_error = np.arctan2(
         np.sin(global_angle - rtheta), np.cos(global_angle - rtheta)
     )
-    return np.array([dist, heading_error])
+    return np.array([dist, heading_error], dtype=float)
+
+
+def scale_input(local_error: np.ndarray) -> np.ndarray:
+    """Raw [dist, heading_error] clipped to [-1, 1] for reservoir drive (like working version)."""
+    # Just clip to [-1, 1] range - let the reservoir handle the nonlinearity
+    return np.clip(local_error, -1.0, 1.0)
