@@ -1,7 +1,10 @@
 import threading
 
+import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from geometry_msgs.msg import TwistStamped
+from nav_msgs.msg import Odometry
 from rclpy.action import ActionServer
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -9,6 +12,7 @@ from rclpy.node import Node
 from simple_pid import PID
 from sklearn.linear_model import Ridge
 from std_srvs.srv import Trigger
+from tf_transformations import euler_from_quaternion
 
 from reservoir_control.simulated_reservoirs import SimulatedReservoir
 from reservoir_control.trajectory_generator import TrajectoryGenerator
@@ -17,6 +21,7 @@ from reservoir_control.utils import (
     get_local_error,
     initialize_reservoir,
     pi_clip,
+    scale_input,
 )
 from reservoir_msgs.action import Trajectory
 
@@ -91,7 +96,14 @@ class ExpertTrainerNode(Node):
         self.train_service = self.create_service(
             Trigger, "train_reservoir_ridge", self._train_and_save_ridge
         )
+        self.enable_training_service = self.create_service(
+            Trigger, "enable_training", self._enable_training_callback
+        )
+        self.clear_training_data_service = self.create_service(
+            Trigger, "clear_training_data", self._clear_training_data_callback
+        )
         # Training data storage
+        self.is_training = False
         self.X_train_data = []  # Reservoir features
         self.Y_train_data = []  # Expert control outputs
 
@@ -249,10 +261,11 @@ class ExpertTrainerNode(Node):
             self.cmd_publisher.publish(cmd_msg)
 
             # Reservoir feature generation/collection
-            res_input = scale_input(local_error)
-            res_features = self.reservoir.step(res_input)
-            self.X_train_data.append(res_features)
-            self.Y_train_data.append(np.array([linear_vel, angular_vel]))
+            if self.is_training:
+                res_input = scale_input(local_error)
+                res_features = self.reservoir.step(res_input)
+                self.X_train_data.append(res_features)
+                self.Y_train_data.append(np.array([linear_vel, angular_vel]))
 
             # Feedback
             feedback = Trajectory.Feedback()
@@ -279,6 +292,21 @@ class ExpertTrainerNode(Node):
                 ]
             )
             self.state = RobotState2D(x, y, yaw)
+
+    def _enable_training_callback(self, request, response):
+        self.is_training = not self.is_training
+        response.success = True
+        response.message = (
+            f"Training mode {'enabled' if self.is_training else 'disabled'}."
+        )
+        return response
+
+    def _clear_training_data_callback(self, request, response):
+        self.X_train_data.clear()
+        self.Y_train_data.clear()
+        response.success = True
+        response.message = "Training data cleared."
+        return response
 
 
 def main(args=None):
