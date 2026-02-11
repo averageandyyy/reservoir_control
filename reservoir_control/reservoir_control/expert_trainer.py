@@ -1,5 +1,7 @@
+import pickle
 import threading
 
+import joblib
 import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
@@ -11,6 +13,8 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from simple_pid import PID
 from sklearn.linear_model import Ridge
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from std_srvs.srv import Trigger
 from tf_transformations import euler_from_quaternion
 
@@ -59,6 +63,7 @@ class ExpertTrainerNode(Node):
         )
 
         self.training_ridge = Ridge(alpha=self.alpha)
+        self.scaler = StandardScaler()
 
         self.get_logger().info(
             f"ExpertTrainerNode initialized with reservoir type: {self.reservoir_type}"
@@ -123,7 +128,8 @@ class ExpertTrainerNode(Node):
     def _declare_parameters(self):
         self.declare_parameter("reservoir_type", "double_pendulum")
         self.declare_parameter("ridge_alpha", 1.0)
-        self.declare_parameter("output_params_file", "output_params.npy")
+        self.declare_parameter("output_scaler_file", "scaler.pkl")
+        self.declare_parameter("output_ridge_file", "ridge.pkl")
         self.declare_parameter("average_speed", 1.0)
         self.declare_parameter("linear_kp", 1.0)
         self.declare_parameter("linear_ki", 0.0)
@@ -133,6 +139,8 @@ class ExpertTrainerNode(Node):
         self.declare_parameter("angular_kd", 0.1)
         self.declare_parameter("v_max", 2.0)
         self.declare_parameter("w_max", 4.0)
+        self.declare_parameter("test_size", 0.2)
+        self.declare_parameter("seed", 42)
 
     def _get_parameters(self):
         self.reservoir_type = (
@@ -141,8 +149,11 @@ class ExpertTrainerNode(Node):
         self.alpha = (
             self.get_parameter("ridge_alpha").get_parameter_value().double_value
         )
-        output_params_filename = (
-            self.get_parameter("output_params_file").get_parameter_value().string_value
+        output_scaler_filename = (
+            self.get_parameter("output_scaler_file").get_parameter_value().string_value
+        )
+        output_ridge_filename = (
+            self.get_parameter("output_ridge_file").get_parameter_value().string_value
         )
         self.average_speed = (
             self.get_parameter("average_speed").get_parameter_value().double_value
@@ -167,6 +178,10 @@ class ExpertTrainerNode(Node):
         )
         self.v_max = self.get_parameter("v_max").get_parameter_value().double_value
         self.w_max = self.get_parameter("w_max").get_parameter_value().double_value
+        self.test_size = (
+            self.get_parameter("test_size").get_parameter_value().double_value
+        )
+        self.seed = self.get_parameter("seed").get_parameter_value().integer_value
 
         self.config_file = (
             get_package_share_directory("reservoir_control")
@@ -174,10 +189,15 @@ class ExpertTrainerNode(Node):
             + self.reservoir_type
             + ".yaml"
         )
-        self.output_params_file = (
+        self.output_scaler_file = (
             get_package_share_directory("reservoir_control")
             + "/config/"
-            + output_params_filename
+            + output_scaler_filename
+        )
+        self.output_ridge_file = (
+            get_package_share_directory("reservoir_control")
+            + "/config/"
+            + output_ridge_filename
         )
 
     def _post_param_set_callback(self, params):
@@ -209,6 +229,33 @@ class ExpertTrainerNode(Node):
         Reservoir features and control outputs collected during trajectory following are used to fit a ridge regression model.
         The learned parameters are saved to a file for later use in the SimulatedReservoirNode.
         """
+        if len(self.X_train_data) == 0 or len(self.Y_train_data) == 0:
+            response.success = False
+            response.message = (
+                "No training data available. Cannot train ridge regression."
+            )
+            return response
+
+        X_all, Y_all = np.array(self.X_train_data), np.array(self.Y_train_data)
+        X_train, X_val, Y_train, Y_val = train_test_split(
+            X_all, Y_all, test_size=self.test_size, random_state=self.seed
+        )
+
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_val_scaled = self.scaler.transform(X_val)
+        self.training_ridge.fit(X_train_scaled, Y_train)
+        self.get_logger().info(
+            f"Ridge regression training complete. Training score: {self.training_ridge.score(X_train_scaled, Y_train):.4f}, Validation score: {self.training_ridge.score(X_val_scaled, Y_val):.4f}",
+        )
+
+        # Save learned parameters and scaler to file
+        joblib.dump(self.training_ridge, self.output_ridge_file)
+        joblib.dump(self.scaler, self.output_scaler_file)
+
+        self.get_logger().info(
+            f"Learned ridge regression parameters and scaler saved to {self.output_ridge_file} and {self.output_scaler_file}."
+        )
+
         response.success = True
         response.message = "Ridge regression training and saving not yet implemented."
         return response
