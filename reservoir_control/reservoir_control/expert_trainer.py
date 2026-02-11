@@ -49,7 +49,7 @@ class ExpertTrainerNode(Node):
         self._declare_parameters()
         self._get_parameters()
 
-        reservoir = initialize_reservoir(
+        self.reservoir = initialize_reservoir(
             self.reservoir_type, self.config_file, self.get_name(), self.get_logger()
         )
 
@@ -91,6 +91,9 @@ class ExpertTrainerNode(Node):
         self.train_service = self.create_service(
             Trigger, "train_reservoir_ridge", self._train_and_save_ridge
         )
+        # Training data storage
+        self.X_train_data = []  # Reservoir features
+        self.Y_train_data = []  # Expert control outputs
 
         self.get_logger().info("ExpertTrainerNode setup complete.")
 
@@ -228,7 +231,24 @@ class ExpertTrainerNode(Node):
             x, y, progress = self.trajectory_generator.query_trajectory(elapsed)
 
             # PID control to compute velocity commands
-            local_error = get_local_error(self.state.as_tuple(), (x, y))
+            local_error = get_local_error(
+                self.state.as_tuple(), (x, y)
+            )  # [dist, heading_error]
+            linear_vel = self.pid_linear(local_error[0])
+            angular_vel = self.pid_angular(local_error[1])
+            cmd_msg = TwistStamped()
+            cmd_msg.header.stamp = self.get_clock().now().to_msg()
+            cmd_msg.twist.linear.x = linear_vel
+            cmd_msg.twist.angular.z = angular_vel
+            self.cmd_publisher.publish(cmd_msg)
+
+            # Reservoir feature generation/collection
+            res_input = scale_input(local_error)
+            res_features = self.reservoir.step(res_input)
+            self.X_train_data.append(res_features)
+            self.Y_train_data.append(np.array([linear_vel, angular_vel]))
+
+            # Feedback
             feedback = Trajectory.Feedback()
             feedback.progress = progress
             feedback.setpoint.x = x
