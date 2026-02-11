@@ -257,7 +257,7 @@ class ExpertTrainerNode(Node):
         )
 
         response.success = True
-        response.message = "Ridge regression training and saving not yet implemented."
+        response.message = "Ridge regression training and saving complete."
         return response
 
     def _goal_callback(self, goal_request):
