@@ -7,6 +7,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.action import ActionServer
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -71,7 +72,7 @@ class ExpertTrainerNode(Node):
 
         self._initialize_trajectory_generator_and_pid()
 
-        self.add_post_set_parameters_callback(self._post_param_set_callback)
+        self.add_on_set_parameters_callback(self._on_param_set_callback)
 
         # Trajectory action server
         self.trajectory_handle = None
@@ -200,9 +201,10 @@ class ExpertTrainerNode(Node):
             + output_ridge_filename
         )
 
-    def _post_param_set_callback(self, params):
+    def _on_param_set_callback(self, params):
         self._get_parameters()
         self._initialize_trajectory_generator_and_pid()
+        return SetParametersResult(successful=True)
 
     def _initialize_trajectory_generator_and_pid(self):
         self.trajectory_generator = TrajectoryGenerator(self.average_speed)

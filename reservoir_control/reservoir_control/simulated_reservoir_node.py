@@ -1,7 +1,7 @@
 import rclpy
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
-from rclpy.parameter import parameter_dict_from_yaml_file, parameter_value_to_python
 
 
 class SimulatedReservoirNode(Node):
@@ -39,26 +39,21 @@ class SimulatedReservoirNode(Node):
         )
 
     def initialize_reservoir(self):
-        self.config = {}
-        prefix = "reservoir_parameters."
-        params = parameter_dict_from_yaml_file(
-            self.config_file, target_nodes=["/" + self.get_name()]
-        )
+        with open(self.config_file, "r") as f:
+            full_config = yaml.safe_load(f)
 
-        for key in params:
-            if key.startswith(prefix):
-                param_name = key[len(prefix) :]
-                param_value = parameter_value_to_python(params[key]._value)
-                if param_name.endswith("file"):
-                    param_value = (
-                        get_package_share_directory("reservoir_control")
-                        + "/config/"
-                        + param_value
-                    )
-                self.get_logger().info(
-                    f"Setting reservoir parameter: {param_name} = {param_value}"
+        self.config = full_config["/" + self.get_name()]["ros__parameters"]["reservoir_parameters"]
+
+        for param_name, param_value in self.config.items():
+            if param_name.endswith("file"):
+                self.config[param_name] = (
+                    get_package_share_directory("reservoir_control")
+                    + "/config/"
+                    + param_value
                 )
-                self.config[param_name] = param_value
+            self.get_logger().info(
+                f"Setting reservoir parameter: {param_name} = {self.config[param_name]}"
+            )
 
         self.create_reservoir()
 

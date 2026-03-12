@@ -1,11 +1,11 @@
 import math
+from typing import Any
 
 import numpy as np
+import yaml
 from ament_index_python.packages import get_package_share_directory
-from rclpy.logging import RcutilsLogger
-from rclpy.parameter import parameter_dict_from_yaml_file, parameter_value_to_python
 
-from reservoir_control.reservoir_control.simulated_reservoirs import SimulatedReservoir
+from reservoir_control.simulated_reservoirs import SimulatedReservoir
 
 
 class RobotState2D:
@@ -24,7 +24,7 @@ class RobotState2D:
 
 
 def create_reservoir(
-    reservoir_type: str, config: dict, logger: RcutilsLogger
+    reservoir_type: str, config: dict, logger: Any
 ) -> SimulatedReservoir:
     if reservoir_type == "double_pendulum":
         from reservoir_control.simulated_reservoirs import DoublePendulumReservoir
@@ -36,24 +36,22 @@ def create_reservoir(
 
 
 def initialize_reservoir(
-    reservoir_type: str, config_file: str, node_name: str, logger: RcutilsLogger
+    reservoir_type: str, config_file: str, node_name: str, logger: Any
 ) -> SimulatedReservoir:
-    config = {}
-    prefix = "reservoir_parameters."
-    params = parameter_dict_from_yaml_file(config_file, target_nodes=["/" + node_name])
+    with open(config_file, "r") as f:
+        full_config = yaml.safe_load(f)
 
-    for key in params:
-        if key.startswith(prefix):
-            param_name = key[len(prefix) :]
-            param_value = parameter_value_to_python(params[key]._value)
-            if param_name.endswith("file"):
-                param_value = (
-                    get_package_share_directory("reservoir_control")
-                    + "/config/"
-                    + param_value
-                )
-            logger.info(f"Setting reservoir parameter: {param_name} = {param_value}")
-            config[param_name] = param_value
+    # Extract the nested reservoir_parameters dictionary
+    config = full_config["/" + node_name]["ros__parameters"]["reservoir_parameters"]
+
+    for param_name, param_value in config.items():
+        if param_name.endswith("file"):
+            config[param_name] = (
+                get_package_share_directory("reservoir_control")
+                + "/config/"
+                + param_value
+            )
+        logger.info(f"Setting reservoir parameter: {param_name} = {config[param_name]}")
 
     return create_reservoir(reservoir_type, config, logger)
 
