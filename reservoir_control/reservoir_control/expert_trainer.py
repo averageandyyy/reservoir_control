@@ -63,7 +63,7 @@ class ExpertTrainerNode(Node):
             self.reservoir_type, self.config_file, self.get_name(), self.get_logger()
         )
 
-        self.training_ridge = Ridge(alpha=self.alpha)
+        self.training_ridge = Ridge(alpha=self.ridge_alpha)
         self.scaler = StandardScaler()
 
         self.get_logger().info(
@@ -148,7 +148,7 @@ class ExpertTrainerNode(Node):
         self.reservoir_type = (
             self.get_parameter("reservoir_type").get_parameter_value().string_value
         )
-        self.alpha = (
+        self.ridge_alpha = (
             self.get_parameter("ridge_alpha").get_parameter_value().double_value
         )
         output_scaler_filename = (
@@ -204,7 +204,10 @@ class ExpertTrainerNode(Node):
         )
 
     def _on_param_set_callback(self, params):
-        self._get_parameters()
+        for param in params:
+            if hasattr(self, param.name):
+                setattr(self, param.name, param.value)
+
         self._initialize_trajectory_generator_and_pid()
         return SetParametersResult(successful=True)
 
