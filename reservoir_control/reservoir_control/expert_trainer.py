@@ -6,7 +6,7 @@ import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.action import ActionServer
@@ -95,9 +95,9 @@ class ExpertTrainerNode(Node):
         self.state_lock = threading.Lock()
         self.state: RobotState2D = RobotState2D()
         self.state_subscription = self.create_subscription(
-            Odometry, "/odom", self._odom_callback, 10
+            Odometry, "/odometry/map_filtered", self._odom_callback, 10
         )
-        self.cmd_publisher = self.create_publisher(TwistStamped, "/cmd_vel", 10)
+        self.cmd_publisher = self.create_publisher(Twist, "/cmd_vel", 10)
         self.get_logger().info(
             "Odometry subscription and cmd_vel publisher initialized."
         )
@@ -137,15 +137,15 @@ class ExpertTrainerNode(Node):
         self.declare_parameter("ridge_alpha", 1.0)
         self.declare_parameter("output_scaler_file", "scaler.pkl")
         self.declare_parameter("output_ridge_file", "ridge.pkl")
-        self.declare_parameter("average_speed", 1.0)
-        self.declare_parameter("linear_kp", 1.0)
+        self.declare_parameter("average_speed", 0.1)
+        self.declare_parameter("linear_kp", 2.0)
         self.declare_parameter("linear_ki", 0.0)
-        self.declare_parameter("linear_kd", 0.1)
-        self.declare_parameter("angular_kp", 1.0)
+        self.declare_parameter("linear_kd", 0.0)
+        self.declare_parameter("angular_kp", 0.75)
         self.declare_parameter("angular_ki", 0.0)
-        self.declare_parameter("angular_kd", 0.1)
-        self.declare_parameter("v_max", 2.0)
-        self.declare_parameter("w_max", 4.0)
+        self.declare_parameter("angular_kd", 0.0)
+        self.declare_parameter("v_max", 1.0)
+        self.declare_parameter("w_max", 2.0)
         self.declare_parameter("test_size", 0.2)
         self.declare_parameter("seed", 42)
         self.declare_parameter("dt", 0.05)
@@ -223,15 +223,14 @@ class ExpertTrainerNode(Node):
             self.linear_kp,
             self.linear_ki,
             self.linear_kd,
-            setpoint=0,  # Target distance is zero
-            output_limits=(0, self.v_max),  # Only forward speed, max at v_max
+            setpoint=0.0,  # Target distance is zero
+            output_limits=(0.0, self.v_max),  # Only forward speed, max at v_max
         )
         self.pid_angular = PID(
             self.angular_kp,
             self.angular_ki,
             self.angular_kd,
-            setpoint=0,  # Target angle error is zero
-            error_map=pi_clip,
+            setpoint=0.0,  # Target angle error is zero
             output_limits=(-self.w_max, self.w_max),  # Angular velocity limits
         )
 
@@ -296,9 +295,10 @@ class ExpertTrainerNode(Node):
     def _execute_trajectory_callback(self, goal_handle):
         self.get_logger().info("Executing trajectory goal.")
         path = goal_handle.request.path
-        waypoints = [self.state.as_tuple()] + [
-            (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
-        ]
+        with self.state_lock:
+            waypoints = [self.state.positional()] + [
+                (pose.pose.position.x, pose.pose.position.y) for pose in path.poses
+            ]
         total_time = self.trajectory_generator.generate_trajectory(waypoints)
         res_features = None
         linear_vel, angular_vel = 0.0, 0.0
@@ -308,7 +308,8 @@ class ExpertTrainerNode(Node):
             self.get_logger().info(
                 "Running reservoir warmup sequence before trajectory execution."
             )
-            local_error = get_local_error(self.state.as_tuple(), waypoints[0])
+            with self.state_lock:
+                local_error = get_local_error(self.state.as_tuple(), waypoints[0])
             self.reservoir.warm_up(scale_input(local_error))
             self.get_logger().info("Reservoir warmup complete.")
 
@@ -343,6 +344,8 @@ class ExpertTrainerNode(Node):
                     self.state.as_tuple(), (x, y)
                 )  # [dist, heading_error]
 
+            self.get_logger().info(f"Current error: {local_error}")
+
             # Reservoir feature generation
             if self.is_training or self.use_reservoir_control:
                 res_input = scale_input(local_error)
@@ -363,17 +366,19 @@ class ExpertTrainerNode(Node):
                 linear_vel = np.clip(action[0], 0.0, self.v_max)
                 angular_vel = np.clip(action[1], -self.w_max, self.w_max)
             else:
-                linear_vel = self.pid_linear(local_error[0])
-                angular_vel = self.pid_angular(local_error[1])
+                linear_vel = self.pid_linear(-local_error[0])
+                angular_vel = self.pid_angular(-pi_clip(local_error[1]))
+                linear_vel *= np.cos(local_error[1])
+                linear_vel = np.clip(linear_vel, 0.0, self.v_max)
                 # Reservoir feature collection
                 if self.is_training:
                     self.X_train_data.append(res_features)
                     self.Y_train_data.append(np.array([linear_vel, angular_vel]))
-
-            cmd_msg = TwistStamped()
-            cmd_msg.header.stamp = self.get_clock().now().to_msg()
-            cmd_msg.twist.linear.x = linear_vel
-            cmd_msg.twist.angular.z = angular_vel
+            
+            self.get_logger().info(f"Moving at: {linear_vel}m/s and {angular_vel}rad/s")
+            cmd_msg = Twist()
+            cmd_msg.linear.x = linear_vel
+            cmd_msg.angular.z = angular_vel
             self.cmd_publisher.publish(cmd_msg)
 
             # Feedback
@@ -381,6 +386,8 @@ class ExpertTrainerNode(Node):
             feedback.progress = progress
             feedback.setpoint.x = x
             feedback.setpoint.y = y
+            with self.state_lock:
+                feedback.current.x, feedback.current.y = self.state.positional()
             goal_handle.publish_feedback(feedback)
 
             rate.sleep()

@@ -17,6 +17,9 @@ class RobotState2D:
     def as_tuple(self) -> tuple[float, float, float]:
         return (self.x, self.y, self.theta)
 
+    def positional(self) -> tuple[float, float]:
+        return (self.x, self.y)
+
     def update(self, x: float, y: float, theta: float) -> None:
         self.x = x
         self.y = y

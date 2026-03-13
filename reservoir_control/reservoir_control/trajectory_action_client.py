@@ -29,6 +29,9 @@ class TrajectoryActionClient(Node):
         self.setpoints_x = []
         self.setpoints_y = []
 
+        self.current_x = []
+        self.current_y = []
+
         # Create path message
         path = Path()
         path.header.frame_id = "map"
@@ -69,6 +72,9 @@ class TrajectoryActionClient(Node):
         self.setpoints_x.append(feedback.setpoint.x)
         self.setpoints_y.append(feedback.setpoint.y)
 
+        self.current_x.append(feedback.current.x)
+        self.current_y.append(feedback.current.y)
+
     def get_result_callback(self, future):
         result = future.result().result
         if result.success:
@@ -86,6 +92,9 @@ class TrajectoryActionClient(Node):
         plt.figure(figsize=(8, 8))
         plt.plot(
             self.setpoints_x, self.setpoints_y, "b-", linewidth=2, label="Trajectory"
+        )
+        plt.plot(
+            self.current_x, self.current_y, "g-", label="Actual"
         )
         plt.plot(
             self.setpoints_x[0], self.setpoints_y[0], "go", markersize=10, label="Start"
@@ -110,7 +119,7 @@ def main(args=None):
     action_client = TrajectoryActionClient()
 
     # Example waypoints - modify as needed
-    waypoints = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]
+    waypoints = [(0.5, 0.0), (0.0, -0.5), (-0.5, 0.0), (0.0, 0.5), (0.0, 0.0)]
 
     action_client.send_goal(waypoints)
 
