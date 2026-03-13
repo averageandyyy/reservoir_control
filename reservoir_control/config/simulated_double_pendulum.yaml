@@ -19,12 +19,13 @@
   ros__parameters:
     # Reservoir selection
     reservoir_type: "double_pendulum"
+    dt: 0.05 # dt is the amount of time per control loop, which should be equal to the dt_ctrl * mujoco_substeps
     
     # Nested reservoir-specific parameters
     reservoir_parameters:
         xml_file: "simulated_double_pendulum.xml"
-        dt_ctrl: 0.05
-        mujoco_substeps: 5
+        dt_ctrl: 0.01 # dt_ctrl is the amount of time per mujoco_substep. should be aligned with .xml specification
+        mujoco_substeps: 5 # number of steps to make on every step() call
         rbf_gamma: 0.05
         rbf_components: 1000
         ctrl_scale: 12.0
