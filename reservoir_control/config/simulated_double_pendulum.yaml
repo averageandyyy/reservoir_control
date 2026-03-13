@@ -20,6 +20,8 @@
     # Reservoir selection
     reservoir_type: "double_pendulum"
     dt: 0.05 # dt is the amount of time per control loop, which should be equal to the dt_ctrl * mujoco_substeps
+
+    # TODO: Add in expert controller parameters. Use defaults in source code for now
     
     # Nested reservoir-specific parameters
     reservoir_parameters:
