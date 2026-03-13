@@ -5,6 +5,7 @@ import joblib
 import numpy as np
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from cv_bridge import CvBridge
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
@@ -12,6 +13,7 @@ from rclpy.action import ActionServer
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from sensor_msgs.msg import Image
 from simple_pid import PID
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
@@ -91,7 +93,7 @@ class ExpertTrainerNode(Node):
 
         # Robot pose and command
         self.state_lock = threading.Lock()
-        self.state: RobotState2D = None
+        self.state: RobotState2D = RobotState2D()
         self.state_subscription = self.create_subscription(
             Odometry, "/odom", self._odom_callback, 10
         )
@@ -123,6 +125,10 @@ class ExpertTrainerNode(Node):
         self.use_reservoir_control_service = self.create_service(
             Trigger, "use_reservoir_control", self._use_reservoir_control_callback
         )
+
+        # Image publisher and cv_bridge
+        self.bridge = CvBridge()
+        self.image_publisher = self.create_publisher(Image, "/reservoir_image", 10)
 
         self.get_logger().info("ExpertTrainerNode setup complete.")
 
@@ -306,6 +312,13 @@ class ExpertTrainerNode(Node):
             self.reservoir.warm_up(scale_input(local_error))
             self.get_logger().info("Reservoir warmup complete.")
 
+            # Publish initial frame after warmup
+            image_array = self.reservoir.render()
+            if image_array is not None:
+                img_msg = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
+                img_msg.header.stamp = self.get_clock().now().to_msg()
+                self.image_publisher.publish(img_msg)
+
         start_time = self.get_clock().now()
         end_time = start_time + rclpy.duration.Duration(seconds=total_time)
 
@@ -325,14 +338,22 @@ class ExpertTrainerNode(Node):
             x, y, progress = self.trajectory_generator.query_trajectory(elapsed)
 
             # Error computation
-            local_error = get_local_error(
-                self.state.as_tuple(), (x, y)
-            )  # [dist, heading_error]
+            with self.state_lock:
+                local_error = get_local_error(
+                    self.state.as_tuple(), (x, y)
+                )  # [dist, heading_error]
 
             # Reservoir feature generation
             if self.is_training or self.use_reservoir_control:
                 res_input = scale_input(local_error)
                 res_features = self.reservoir.step(res_input)
+
+                # Render and publish image
+                image_array = self.reservoir.render()
+                if image_array is not None:
+                    img_msg = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
+                    img_msg.header.stamp = self.get_clock().now().to_msg()
+                    self.image_publisher.publish(img_msg)
 
             # Control
             if self.use_reservoir_control:
@@ -381,7 +402,7 @@ class ExpertTrainerNode(Node):
                     orientation_q.w,
                 ]
             )
-            self.state = RobotState2D(x, y, yaw)
+            self.state.update(x, y, yaw)
 
     def _enable_training_callback(self, request, response):
         self.is_training = not self.is_training

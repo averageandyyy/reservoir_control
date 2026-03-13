@@ -64,6 +64,16 @@ class SimulatedReservoir(ABC):
             "Get feature dimension method must be implemented by subclass."
         )
 
+    @abstractmethod
+    def render(self) -> Optional[np.ndarray]:
+        """
+        Render the current state of the reservoir as an RGB image.
+
+        Returns:
+            Optional[np.ndarray]: The rendered RGB image, or None if rendering is not supported.
+        """
+        pass
+
 
 class DoublePendulumReservoir(SimulatedReservoir):
     """
@@ -84,6 +94,8 @@ class DoublePendulumReservoir(SimulatedReservoir):
         leak_rate: float,
         seed: int = 42,
         warmup_steps: int = 30,
+        render_width: int = 640,
+        render_height: int = 480,
     ):
         """
         Initialize double pendulum reservoir.
@@ -118,6 +130,11 @@ class DoublePendulumReservoir(SimulatedReservoir):
         # Internal leaky-integrated state
         self.h = np.zeros(rbf_components)
         self.rbf_components = rbf_components
+        
+        # Rendering
+        self.render_width = render_width
+        self.render_height = render_height
+        self.renderer = None
 
     def step(self, input_signal: np.ndarray) -> np.ndarray:
         """
@@ -192,3 +209,15 @@ class DoublePendulumReservoir(SimulatedReservoir):
             int: Number of RBF components
         """
         return self.rbf_components
+
+    def render(self) -> Optional[np.ndarray]:
+        """
+        Render the current state of the double pendulum.
+
+        Returns:
+            Optional[np.ndarray]: The rendered RGB image.
+        """
+        if self.renderer is None:
+            self.renderer = mujoco.Renderer(self.model, height=self.render_height, width=self.render_width)
+        self.renderer.update_scene(self.data)
+        return self.renderer.render()
