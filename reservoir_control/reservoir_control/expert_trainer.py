@@ -142,6 +142,7 @@ class ExpertTrainerNode(Node):
         self.declare_parameter("w_max", 4.0)
         self.declare_parameter("test_size", 0.2)
         self.declare_parameter("seed", 42)
+        self.declare_parameter("dt", 0.05)
 
     def _get_parameters(self):
         self.reservoir_type = (
@@ -183,6 +184,7 @@ class ExpertTrainerNode(Node):
             self.get_parameter("test_size").get_parameter_value().double_value
         )
         self.seed = self.get_parameter("seed").get_parameter_value().integer_value
+        self.dt = self.get_parameter("dt").get_parameter_value().double_value
 
         self.config_file = (
             get_package_share_directory("reservoir_control")
@@ -304,6 +306,7 @@ class ExpertTrainerNode(Node):
         start_time = self.get_clock().now()
         end_time = start_time + rclpy.duration.Duration(seconds=total_time)
 
+        rate = self.create_rate(1/self.dt)
         while self.get_clock().now() < end_time:
             if goal_handle.is_cancel_requested:
                 self.get_logger().info("Trajectory goal canceled.")
@@ -355,6 +358,8 @@ class ExpertTrainerNode(Node):
             feedback.setpoint.x = x
             feedback.setpoint.y = y
             goal_handle.publish_feedback(feedback)
+
+            rate.sleep()
 
         self.get_logger().info("Trajectory goal completed successfully.")
         goal_handle.succeed()
