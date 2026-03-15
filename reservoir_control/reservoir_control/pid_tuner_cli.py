@@ -314,7 +314,7 @@ def cli_loop(node):
         
         if choice == 'q':
             print("Exiting PID Tuner CLI...")
-            sys.exit(0)
+            break
             
         # Services
         if choice == 't':
@@ -350,8 +350,13 @@ def main(args=None):
     
     node = PIDTunerCLI()
     
-    # We will run the ROS spinning logic dynamically when needed instead of standard spin
-    # We use a custom spin executor mixed inside the CLI loops by directly resolving Futures.
+    # We will run the ROS spinning logic dynamically in a background thread 
+    # to avoid blocking on `input()` in the main thread.
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(node)
+    
+    spin_thread = threading.Thread(target=executor.spin, daemon=True)
+    spin_thread.start()
     
     print("Initializing GUI and waiting for services...")
     node.wait_for_services()
@@ -362,9 +367,11 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        print("Shutting down node...")
         node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.shutdown()
+        spin_thread.join(timeout=1.0)
+        sys.exit(0)
 
 
 if __name__ == "__main__":
