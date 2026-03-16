@@ -9,7 +9,7 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from lifecycle_msgs.srv import ChangeState
 from nav_msgs.msg import Path
-from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.msg import Parameter, ParameterType
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -45,9 +45,12 @@ class PIDTunerCLI(Node):
             ChangeState, "/amcl/change_state"
         )
 
-        # Publisher for resetting EKFs
+        # Publishers for resetting localization
         self.set_pose_pub = self.create_publisher(
             PoseWithCovarianceStamped, "/set_pose", 10
+        )
+        self.initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, "/initialpose", 10
         )
 
         # Publisher for the resultant image
@@ -79,7 +82,8 @@ class PIDTunerCLI(Node):
             "CW Square": [(0.5, 0.0), (0.5, -0.5), (0.0, -0.5), (0.0, 0.0)],
             "CCW Square": [(0.5, 0.0), (0.5, 0.5), (0.0, 0.5), (0.0, 0.0)],
             "CW Diagonal": [(0.5, 0.5), (0.5, -0.5), (-0.5, -0.5), (-0.5, 0.5), (0.0, 0.0)],
-            "CCW Diagonal": [(0.5, -0.5), (0.5, 0.5), (-0.5, 0.5), (-0.5, -0.5), (0.0, 0.0)]
+            "CCW Diagonal": [(0.5, -0.5), (0.5, 0.5), (-0.5, 0.5), (-0.5, -0.5), (0.0, 0.0)],
+            "Original CW": [(0.5, 0.0), (0.0, -0.5), (-0.5, 0.0), (0.0, 0.5), (0.0, 0.0)]
         }
 
     def wait_for_services(self, timeout_sec=3.0):
@@ -98,13 +102,21 @@ class PIDTunerCLI(Node):
         req.names = self.managed_params
         future = self.get_params_client.call_async(req)
         
-        # We process this synchronously for ease of use in the CLI thread
-        rclpy.spin_until_future_complete(self, future)
-        if future.result() is not None:
+        # Process this by waiting for the background spin thread to complete the future
+        if self.wait_for_future(future, timeout=2.0):
             for i, val in enumerate(future.result().values):
                 self.current_param_values[self.managed_params[i]] = val.double_value
         else:
             self.get_logger().error("Failed to fetch parameters.")
+
+    def wait_for_future(self, future, timeout=5.0):
+        """Helper to wait for a future while the background thread is spinning."""
+        start_time = time.time()
+        while rclpy.ok() and not future.done():
+            if time.time() - start_time > timeout:
+                return False
+            time.sleep(0.05)
+        return future.done()
 
     def set_parameter(self, param_name, value):
         if not self.set_params_client.wait_for_service(timeout_sec=1.0):
@@ -119,13 +131,15 @@ class PIDTunerCLI(Node):
         req.parameters.append(param)
 
         future = self.set_params_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future)
-        res = future.result()
-        if res and res.results[0].successful:
-            print(f"Successfully updated {param_name} to {value}")
-            self.current_param_values[param_name] = float(value)
+        if self.wait_for_future(future, timeout=2.0):
+            res = future.result()
+            if res and res.results[0].successful:
+                print(f"Successfully updated {param_name} to {value}")
+                self.current_param_values[param_name] = float(value)
+            else:
+                print(f"Failed to update {param_name}: {res.results[0].reason if res else 'Unknown error'}")
         else:
-            print(f"Failed to update {param_name}: {res.results[0].reason if res else 'Unknown error'}")
+            print(f"Failed to set parameter {param_name} due to timeout.")
 
     def call_trigger_service(self, client):
         if not client.wait_for_service(timeout_sec=1.0):
@@ -134,11 +148,10 @@ class PIDTunerCLI(Node):
         
         req = Trigger.Request()
         future = client.call_async(req)
-        rclpy.spin_until_future_complete(self, future)
-        if future.result() is not None:
+        if self.wait_for_future(future, timeout=2.0):
             print(f"Service Response: {future.result().message}")
         else:
-            print("Service call failed.")
+            print("Service call timed out.")
 
     def reset_localization(self):
         print("\nResetting localization...")
@@ -165,20 +178,24 @@ class PIDTunerCLI(Node):
             # Deactivate (3)
             req.transition.id = 3 
             future = self.amcl_state_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
+            self.wait_for_future(future)
             # Cleanup (2)
             req.transition.id = 2
             future = self.amcl_state_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
+            self.wait_for_future(future)
             # Configure (1)
             req.transition.id = 1
             future = self.amcl_state_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
+            self.wait_for_future(future)
             # Activate (3)
             req.transition.id = 3
             future = self.amcl_state_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
+            self.wait_for_future(future)
             print("- Cycled AMCL through Complete Lifecycle Restart")
+            
+            # 3. Publish initial pose to AMCL
+            self.initial_pose_pub.publish(pose_msg)
+            print("- Published zero pose to AMCL (/initialpose)")
         else:
             print("- WARN: AMCL lifecycle service not found. Make sure nav2_lifecycle_manager is running.")
             
@@ -222,7 +239,10 @@ class PIDTunerCLI(Node):
             goal_msg, feedback_callback=self.feedback_callback
         )
         
-        rclpy.spin_until_future_complete(self, future)
+        if not self.wait_for_future(future):
+            print("Action goal request timed out.")
+            return
+
         goal_handle = future.result()
         
         if not goal_handle.accepted:
@@ -231,14 +251,15 @@ class PIDTunerCLI(Node):
 
         print("Goal accepted! Executing...")
         result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future)
-        
-        result = result_future.result().result
-        if result.success:
-            print("Trajectory completed successfully!")
-            self.generate_and_publish_plot()
+        if self.wait_for_future(result_future, timeout=300.0): # Long timeout for execution
+            result = result_future.result().result
+            if result.success:
+                print("Trajectory completed successfully!")
+                self.generate_and_publish_plot()
+            else:
+                print("Trajectory failed.")
         else:
-            print("Trajectory failed.")
+            print("Trajectory execution timed out.")
 
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
