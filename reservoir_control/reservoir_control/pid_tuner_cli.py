@@ -276,7 +276,13 @@ class PIDTunerCLI(Node):
             return
 
         print("Generating and publishing plot...")
-        fig, ax = plt.subplots(figsize=(8, 8))
+        from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+        from matplotlib.figure import Figure
+        
+        fig = Figure(figsize=(8, 8))
+        canvas = FigureCanvas(fig)
+        ax = fig.add_subplot(111)
+        
         ax.plot(self.setpoints_x, self.setpoints_y, "b-", linewidth=2, label="Trajectory")
         ax.plot(self.current_x, self.current_y, "g-", label="Actual")
         ax.plot(self.setpoints_x[0], self.setpoints_y[0], "go", markersize=10, label="Start")
@@ -287,17 +293,15 @@ class PIDTunerCLI(Node):
         ax.set_title("Trajectory Setpoints vs Actual")
         ax.legend()
         ax.grid(True)
-        ax.axis("equal")
+        # Handle axis equal constraint safely in a non-GUI figure
+        ax.set_aspect('equal', 'box')
 
         # Draw the canvas, cache the renderer
-        fig.canvas.draw()
+        canvas.draw()
         
         # Get the RGBA buffer from the figure
-        image_flat = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        image = image_flat.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        
-        # Close the figure so it doesn't pop up a GUI window
-        plt.close(fig)
+        image_flat = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+        image = image_flat.reshape(canvas.get_width_height()[::-1] + (3,))
 
         # Publish the image
         img_msg = self.bridge.cv2_to_imgmsg(image, encoding="rgb8")
@@ -387,10 +391,15 @@ def main(args=None):
         cli_loop(node)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        import traceback
+        print(f"\n[FATAL ERROR IN CLI LOOP] {e}\n")
+        traceback.print_exc()
     finally:
         print("Shutting down node...")
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
         spin_thread.join(timeout=1.0)
         sys.exit(0)
 
