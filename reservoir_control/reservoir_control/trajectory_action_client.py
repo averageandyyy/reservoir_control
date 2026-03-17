@@ -119,7 +119,8 @@ def main(args=None):
     action_client = TrajectoryActionClient()
 
     # Example waypoints - modify as needed
-    waypoints = [(0.5, 0.0), (0.0, -0.5), (-0.5, 0.0), (0.0, 0.5), (0.0, 0.0)]
+    waypoints = [(0.8, 0.0), (0.0, -0.8), (-0.8, 0.0), (0.0, 0.8), (0.0, 0.0)]
+    # waypoints = [(0.8, 0.0), (0.0, 0.8), (-0.8, 0.0), (0.0, -0.8), (0.0, 0.0)]
 
     action_client.send_goal(waypoints)
 

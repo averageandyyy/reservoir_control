@@ -137,15 +137,15 @@ class ExpertTrainerNode(Node):
         self.declare_parameter("ridge_alpha", 1.0)
         self.declare_parameter("output_scaler_file", "scaler.pkl")
         self.declare_parameter("output_ridge_file", "ridge.pkl")
-        self.declare_parameter("average_speed", 0.1)
-        self.declare_parameter("linear_kp", 2.0)
+        self.declare_parameter("average_speed", 0.05)
+        self.declare_parameter("linear_kp", 1.0)
         self.declare_parameter("linear_ki", 0.0)
         self.declare_parameter("linear_kd", 0.0)
         self.declare_parameter("angular_kp", 0.75)
         self.declare_parameter("angular_ki", 0.0)
         self.declare_parameter("angular_kd", 0.0)
-        self.declare_parameter("v_max", 1.0)
-        self.declare_parameter("w_max", 2.0)
+        self.declare_parameter("v_max", 0.1)
+        self.declare_parameter("w_max", 0.3)
         self.declare_parameter("test_size", 0.2)
         self.declare_parameter("seed", 42)
         self.declare_parameter("dt", 0.05)
@@ -314,11 +314,11 @@ class ExpertTrainerNode(Node):
             self.get_logger().info("Reservoir warmup complete.")
 
             # Publish initial frame after warmup
-            image_array = self.reservoir.render()
-            if image_array is not None:
-                img_msg = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
-                img_msg.header.stamp = self.get_clock().now().to_msg()
-                self.image_publisher.publish(img_msg)
+            # image_array = self.reservoir.render()
+            # if image_array is not None:
+            #     img_msg = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
+            #     img_msg.header.stamp = self.get_clock().now().to_msg()
+            #     self.image_publisher.publish(img_msg)
 
         start_time = self.get_clock().now()
         end_time = start_time + rclpy.duration.Duration(seconds=total_time)
@@ -352,11 +352,11 @@ class ExpertTrainerNode(Node):
                 res_features = self.reservoir.step(res_input)
 
                 # Render and publish image
-                image_array = self.reservoir.render()
-                if image_array is not None:
-                    img_msg = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
-                    img_msg.header.stamp = self.get_clock().now().to_msg()
-                    self.image_publisher.publish(img_msg)
+                # image_array = self.reservoir.render()
+                # if image_array is not None:
+                #     img_msg = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
+                #     img_msg.header.stamp = self.get_clock().now().to_msg()
+                #     self.image_publisher.publish(img_msg)
 
             # Control
             if self.use_reservoir_control:
